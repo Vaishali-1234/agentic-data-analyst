@@ -1,0 +1,13 @@
+langgraph
+langchain
+langchain-community
+duckdb
+pandas
+matplotlib
+plotly
+fastapi
+uvicorn
+streamlit
+python-dotenv
+sentence-transformers
+pydantic
