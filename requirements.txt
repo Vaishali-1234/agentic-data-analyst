@@ -1,6 +1,7 @@
 langgraph
 langchain
 langchain-community
+langchain-groq
 duckdb
 pandas
 matplotlib
