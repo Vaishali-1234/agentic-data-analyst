@@ -14,6 +14,7 @@ queries - the most dangerous failure mode, since they don't error out.
 """
 
 import json
+import re
 from langchain_groq import ChatGroq
 from src.graph.state import AgentState
 
@@ -75,17 +76,23 @@ def check_grounding(state: AgentState, llm: ChatGroq = None) -> AgentState:
         # pattern as the SQL tool's own self-correction retry
         "sql_result": state.get("sql_result"),
         "route_reasoning": state.get("route_reasoning"),
-        "_grounding_issue": issue,
+        "grounding_issue": issue,
     }
 
 
 def _parse_grounding_response(raw_content: str) -> tuple:
-    """Parse the LLM's grounding verdict. Fails safe: if we can't parse
-    the response, default to grounded=False so a genuinely bad answer
-    doesn't slip through just because the checker itself had a hiccup."""
+    """Parse the LLM's grounding verdict. Fails safe: if we truly can't
+    parse the response, default to grounded=False.
+
+    Uses a regex search for the JSON object rather than only stripping
+    known markdown fence patterns - real Groq/Llama responses sometimes
+    add commentary before/after the JSON despite instructions not to,
+    which the older prefix/suffix-only stripping missed entirely."""
     try:
-        cleaned = raw_content.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        parsed = json.loads(cleaned)
+        match = re.search(r"\{.*\}", raw_content, re.DOTALL)
+        if not match:
+            return False, "Could not parse grounding check response (no JSON object found)."
+        parsed = json.loads(match.group(0))
         return bool(parsed.get("grounded", False)), parsed.get("issue", "")
     except (json.JSONDecodeError, AttributeError):
         return False, "Could not parse grounding check response."

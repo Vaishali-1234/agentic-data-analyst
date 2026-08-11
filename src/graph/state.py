@@ -32,4 +32,5 @@ class AgentState(TypedDict):
 
     # Self-check / retry loop
     retry_count: int
-    grounded: Optional[bool]         # did the self-check pass?
+    grounded: Optional[bool]
+    grounding_issue: Optional[str]   # why grounding failed, fed back into the retry         # did the self-check pass?

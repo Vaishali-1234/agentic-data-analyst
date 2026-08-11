@@ -48,6 +48,19 @@ name/purpose), PREFER the clean column over casting the quirky one.
 - DuckDB CAST syntax uses the AS keyword: TRY_CAST(expr AS INTEGER). \
 Do NOT use a comma, e.g. TRY_CAST(expr, INTEGER) is INVALID and will \
 fail - this is not the correct syntax in DuckDB.
+
+Worked example of the cumulative-column trap (follow this pattern):
+Question: "How many races did Team X win in 2015?"
+WRONG: SELECT SUM(wins) FROM constructor_standings WHERE ... - wrong, \
+'wins' here is a running total as of each race, summing it double-counts.
+WRONG: SELECT COUNT(wins) FROM constructor_standings WHERE ... - also \
+wrong, this counts ROWS (i.e. races entered that season), not actual wins.
+CORRECT: SELECT COUNT(*) FROM results WHERE constructorId = ... AND \
+positionOrder = 1 AND <year filter via joined races table> - this counts \
+actual individual winning results directly from the per-event table.
+Apply this same pattern whenever a question asks to count occurrences of \
+an event (wins, podiums, DNFs, etc.) - always prefer counting rows in \
+the per-event table over summing or counting a standings/summary table.
 """
 
 
@@ -78,17 +91,33 @@ def generate_sql(question: str, schema_summary: str, llm, error_context: str = N
     return _clean_sql(response.content)
 
 
-def run_sql_tool(state: AgentState, con: duckdb.DuckDBPyConnection, llm: ChatGroq = None) -> AgentState:
-    """LangGraph node: generates and executes a SQL query for the question."""
+def run_sql_tool(
+    state: AgentState,
+    con: duckdb.DuckDBPyConnection,
+    llm: ChatGroq = None,
+    external_feedback: str = None,
+) -> AgentState:
+    """LangGraph node: generates and executes a SQL query for the question.
+
+    `external_feedback` lets a caller (e.g. the graph, after a failed
+    grounding check) pass in a specific issue to fix - reusing the same
+    "show the LLM its own mistake" mechanism as the internal syntax-error
+    retry below, just triggered from outside instead of from an exception.
+    """
     if llm is None:
         llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
 
     trace = state.get("reasoning_trace", []) or []
-    sql_query = generate_sql(state["question"], state["schema_summary"], llm)
+    sql_query = generate_sql(
+        state["question"], state["schema_summary"], llm, error_context=external_feedback
+    )
 
     try:
         result_df = con.execute(sql_query).fetchdf()
-        trace.append(f"SQL tool ran: {sql_query}")
+        trace.append(
+            f"SQL tool retried after grounding feedback: {sql_query}"
+            if external_feedback else f"SQL tool ran: {sql_query}"
+        )
     except Exception as e:
         trace.append(f"SQL tool: first query failed ({e}) - retrying with error feedback")
         try:
